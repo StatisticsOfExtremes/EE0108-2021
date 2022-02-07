@@ -22,6 +22,8 @@ utilizando os métodos de *shrinkage*
 ```{r pacotes, include=FALSE}
 library(glmnet)
 library(dplyr)
+library(broom)
+library(tibble)
 ```
 
 
@@ -130,13 +132,33 @@ cv.lasso <- cv.glmnet(x=X.train, y=Y.train,family="gaussian", alpha=1, nfolds=10
 
 plot(cv.lasso)
 
-coef(cv.lasso, s=cv.lasso$lambda.min)
+a <- broom::tidy(cv.lasso)
+
+a <- as_tibble(broom::tidy(coef(cv.lasso, s=cv.lasso$lambda.min)))
+
+ta <- tibble(df = list(a), b = "ola")
 
 Y_pred.lasso <- predict(lasso.fit, newx = X.test, s=cv.lasso$lambda.min)
 
 MSE_lasso <- mean((Y.test-Y_pred.lasso)^2)
 
 
+```
+
+
+```{r}
+  plotCV <- function(x, y) {
+    as.data.frame(y) %>% 
+    tibble::rownames_to_column("variable") %>% 
+    tidyr::pivot_longer(-variable) %>% 
+    mutate(lambda=x[name]) %>% 
+    ggplot2::ggplot(aes(x=lambda,y=value,col=variable)) + 
+    ggplot2::geom_line() + 
+    ggrepel::geom_label_repel(data=~subset(.x,lambda==min(lambda)),
+    aes(label=variable),nudge_x=-0.5)
+  }
+  
+  plotCV(as.matrix(cv.lasso$glmnet.fit$beta), cv.lasso$lambda)
 ```
 
 
@@ -147,11 +169,43 @@ Qual o melhor modelo? Justifique.
 Ponto extra: Estime modelo de previsão usando Elastic-net (com alpha={ 0.25;0.5;0.75}). Compare com modelos anteriores. 
 
 ```{r elastic-net}
+
+alphas <- c(0.25, 0.5, 0.75)
+
+
+estimadorElasticNet <- function(x_treino, y_treino, x_teste, y_teste, alpha, folds = 10) {
+  
+  elastic.fit <- glmnet::glmnet(x=X.train, y=Y.train,family="gaussian",alpha=alpha)
+  
+  cv.elastic <- glmnet::cv.glmnet(x = X.train, y = Y.train, family = "gaussian", alpha = alpha, nfolds=folds)
+  
+  coefElastic <- broom::tidy(coef(cv.elastic, s = cv.elastic$lambda.min))
+  
+  
+  #como o plot do `glmnet::plot.glmnet` retorna `NULL`, vamos construir nosso 
+  #plot
+  
+
+
+  elasticTibble <- tibble(
+    coeficientes = list(coefElastic),
+     # plotLambda = plot(elastic.fit,xvar="lambda", label=TRUE),
+  )
+
+  elasticTibble <- elasticTibble %>%
+    mutate(plotcv = plot(cv.elastic),
+           plotfit = plot(elastic.fit,xvar="lambda", label=TRUE))
+    
+  }
+
 elastic.fit <- glmnet(x=X.train, y=Y.train,family="gaussian",alpha=0.75)
 
 plot(elastic.fit,xvar="lambda", label=TRUE)
 
-cv.elastic <- cv.glmnet(x=X.train, y=Y.train, family="gaussian", alpha=0.75, nfolds=10)
+
+f <- estimadorElasticNet(x_treino = X.train, y_treino = Y.train, x_teste = X.test, y_teste = Y.test, alpha = 0.5)
+
+broom::tidy
 
 plot(cv.elastic)
 
