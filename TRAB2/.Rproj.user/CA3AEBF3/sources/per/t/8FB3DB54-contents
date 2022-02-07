@@ -1,0 +1,166 @@
+---
+title: "Relatorio"
+author: 
+        - Maxxi Lorenzzo Santos Rios, 472722
+        - Alysson da Silva Moura, 400660
+        - Leonardo Gomes Prado, 472920
+        - Luis Fernando A. Brito, 418824
+date: "05/02/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Incluindo os pacotes 
+
+Primeiro nós precisamos incluir o pacote `glmnet` que utilizaremos para estimar
+utilizando os métodos de *shrinkage*
+
+```{r pacotes, include=FALSE}
+library(glmnet)
+library(dplyr)
+```
+
+
+## Questões
+
+Considere os dados sobre automóveis disponíveis no Sigaa UFC em formato csv 
+intitulado “house_data_exer_tnkc_wobasement.csv” 
+
+----
+
+Primeiro vamos carregar e guardar os nossos dados na variável
+`dados`:
+
+```{r lendo os dados}
+dados <- read.csv("house_data_exer_tnkc_wobasement.csv")
+
+head(dados)
+
+```
+
+Para facilitar nossa vida, vamos renomear a primeira coluna, para
+`price`
+
+```{r renomeando colunas}
+names(dados)[1] <- "price"
+
+```
+
+Pra garantir que o nosso *number generator* seja igual ao da questão,
+vamos utilizar o comando `base::set.seed()`
+
+```{r}
+
+set.seed(123)
+
+```
+
+
+Agora vamos separar nossa base em *treino* e *teste*
+
+```{r treino_teste}
+
+## separamos os dados entre treino e teste para evitar overfitting
+index <- sample(nrow(dados),nrow(dados)*0.80)
+dados.train <- dados[index,]
+dados.test <- dados[-index,]
+
+
+index_y <- which(colnames(dados)=="price")
+
+#Como o pacote `gmlnet` não aceita dataframes, precisamos converter
+#os dados para matrix
+X.train <- as.matrix(dados.train[,-index_y]) 
+Y.train <- as.matrix(dados.train[,index_y])
+
+X.test <- as.matrix(dados.test[,-index_y]) 
+Y.test <- as.matrix(dados.test[,index_y])
+```
+
+
+# Primeira Questão
+Estime modelo de previsão usando MQO
+
+---
+
+
+
+
+Para estimar o modelo de Mínimo Quadrados Ordinários (MQO), precisamos utilizar a
+função `lm`
+
+
+
+# Segunda Questão
+Estime modelo de previsão usando Ridge
+
+Para o modelo Ridge temos que minimizar a seguinte função:
+$\beta^{}$
+
+```{r ridge}
+ridge.fit <- glmnet(x= X.train, y=Y.train, family="gaussian", alpha=0)
+plot(ridge.fit, xvar="lambda", label=TRUE)
+
+cv.ridge <-  cv.glmnet(x=X.train, y=Y.train, family="gaussian", alpha=0, nfolds=10)
+plot(cv.ridge)
+coef(cv.ridge, s=cv.ridge$lambda.min)
+
+Y_pred.ridge <- predict(ridge.fit, newx = X.test, s=cv.ridge$lambda.min)
+
+MSE_ridge=mean((Y.test-Y_pred.ridge)^2)
+
+```
+
+
+
+# Terceira Questão
+Estime modelo de previsão usando Lasso 
+
+```{r lasso}
+
+lasso.fit <- glmnet(x=X.train, y=Y.train, family="gaussian", alpha=1)
+
+plot(lasso.fit,xvar="lambda", label=TRUE)
+
+cv.lasso <- cv.glmnet(x=X.train, y=Y.train,family="gaussian", alpha=1, nfolds=10)
+
+plot(cv.lasso)
+
+coef(cv.lasso, s=cv.lasso$lambda.min)
+
+Y_pred.lasso <- predict(lasso.fit, newx = X.test, s=cv.lasso$lambda.min)
+
+MSE_lasso <- mean((Y.test-Y_pred.lasso)^2)
+
+
+```
+
+
+Qual o melhor modelo? Justifique.
+
+# Questão Extra
+
+Ponto extra: Estime modelo de previsão usando Elastic-net (com alpha={ 0.25;0.5;0.75}). Compare com modelos anteriores. 
+
+```{r elastic-net}
+elastic.fit <- glmnet(x=X.train, y=Y.train,family="gaussian",alpha=0.75)
+
+plot(elastic.fit,xvar="lambda", label=TRUE)
+
+cv.elastic <- cv.glmnet(x=X.train, y=Y.train, family="gaussian", alpha=0.75, nfolds=10)
+
+plot(cv.elastic)
+
+coef(cv.elastic, s=cv.elastic$lambda.min)
+
+Y_pred.elastic<- predict(elastic.fit, newx = X.test, s=cv.elastic$lambda.min)
+
+MSE_elastic=mean((Y.test-Y_pred.elastic)^2)
+
+cbind(MSE_lasso,MSE_elastic)
+
+```
