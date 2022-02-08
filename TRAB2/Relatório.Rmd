@@ -1,36 +1,40 @@
 ---
 title: "Relatorio"
-author: 
-        - Maxxi Lorenzzo Santos Rios, 472722
-        - Alysson da Silva Moura, 400660
-        - Leonardo Gomes Prado, 472920
-        - Luis Fernando A. Brito, 418824
+author:
+- Maxxi Lorenzzo Santos Rios, 472722
+- Alysson da Silva Moura, 400660
+- Leonardo Gomes Prado, 472920
+- Luis Fernando A. Brito, 418824
 date: "05/02/2022"
 output: pdf_document
 ---
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r}
+rm(list = ls())
 ```
 
 
 ## Incluindo os pacotes 
 
 Primeiro nós precisamos incluir o pacote `glmnet` que utilizaremos para estimar
-utilizando os métodos de *shrinkage*
+utilizando os métodos de *shrinkage*. Utilizaremos os outros pacotes para
+limpar e modificar a base de dados e ter acesso ao *pipe operator* `%>%`
 
-```{r pacotes, include=FALSE}
+```{r pacotes, message=FALSE, warning=FALSE}
+
 library(glmnet)
 library(dplyr)
 library(broom)
 library(tibble)
+library(purrr)
+library(magrittr)
+library(Matrix)
 ```
 
 
 ## Questões
 
-Considere os dados sobre automóveis disponíveis no Sigaa UFC em formato csv 
-intitulado “house_data_exer_tnkc_wobasement.csv” 
+Considere os dados sobre automóveis disponíveis no Sigaa UFC 
+em formato csv  intitulado “house_data_exer_tnkc_wobasement.csv” 
 
 ----
 
@@ -52,13 +56,11 @@ names(dados)[1] <- "price"
 
 ```
 
-Pra garantir que o nosso *number generator* seja igual ao da questão,
+Pra garantir que o nosso *number generator* seja reproduzível,
 vamos utilizar o comando `base::set.seed()`
 
 ```{r}
-
 set.seed(123)
-
 ```
 
 
@@ -93,7 +95,26 @@ Estime modelo de previsão usando MQO
 
 
 Para estimar o modelo de Mínimo Quadrados Ordinários (MQO), precisamos utilizar a
-função `lm`
+função `lm`, com os nossos dados de treino, e utilizar o Erro Quadratico Médio
+(*MSE*) para verificar qual estimador é mais preciso/acurado.
+
+
+```{r modelo MQO}
+#Treina o modelo
+MQO.fit <- lm(Y.train~X.train)
+
+MQO.fit.coef <-  as.matrix(MQO.fit$coefficients)
+
+#É adicionado 1 na primeira coluna para multiplicar pelo \beta_{0}
+X.test_1 <- cbind(1,X.test)
+
+#Preve o modelo no dataset de teste
+Y_pred.MQO <- X.test_1 %*% MQO.fit.coef
+
+MSE_MQO <- mean((Y.test-Y_pred.MQO)^2)
+
+```
+
 
 
 
@@ -101,26 +122,60 @@ função `lm`
 Estime modelo de previsão usando Ridge
 
 Para o modelo Ridge temos que minimizar a seguinte função:
-$\beta^{}$
+$L_{ridge}(\hat\beta) = {\sum_{i =1}^{n} (y_{i} - x'_{i}\hat\beta)^{2} + \lambda\sum_{i =1}^{m}\hat\beta_{j}^{2}}$
+
+onde $\lambda$ é o parâmetro de penalização.
 
 ```{r ridge}
-ridge.fit <- glmnet(x= X.train, y=Y.train, family="gaussian", alpha=0)
+#treinamos o modelo com o dataset de treino
+ridge.fit <- glmnet(x = X.train, y = Y.train, family = "gaussian", alpha = 0)
+
 plot(ridge.fit, xvar="lambda", label=TRUE)
+```
+
+Agora nós utilizamos a técnica de *cross validation* para escolher o $\lambda$
+que minimiza a Soma dos Quadrados dos Resíduos (*SSR*):
+
+- separar os dados de teste em $k$ partes (geralmente 10) ou *folds*
+
+- treinar o modelo em $k - 1$ partes ou *folds*
+
+- validar o modelo na parte que restou dos dados
+
+a performace do modelo é dada pela média dos valores computados no algorítimo.
+
+```{r ridge cv}
 
 cv.ridge <-  cv.glmnet(x=X.train, y=Y.train, family="gaussian", alpha=0, nfolds=10)
+
 plot(cv.ridge)
+
+```
+
+então como fizemos no `lm`, nós utilizamos o modelo treinado para
+prever os dados de teste, e computamos novamente o *MSE*
+
+```{r ridge predict}
+
 coef(cv.ridge, s=cv.ridge$lambda.min)
 
 Y_pred.ridge <- predict(ridge.fit, newx = X.test, s=cv.ridge$lambda.min)
 
-MSE_ridge=mean((Y.test-Y_pred.ridge)^2)
+MSE_ridge <- mean((Y.test-Y_pred.ridge)^2)
 
 ```
 
-
+---
 
 # Terceira Questão
-Estime modelo de previsão usando Lasso 
+Estime modelo de previsão usando Lasso
+
+---
+
+Para o LASSO, estimamos a seguinte *loss function*:
+$L_{ridge}(\hat\beta) = {\sum_{i =1}^{n} (y_{i} - x'_{i}\hat\beta)^{2} + \lambda\sum_{i =1}^{m}|\hat\beta_{j}^{2}}|$
+
+e seguimos os mesmos passos do *ridge*:
 
 ```{r lasso}
 
@@ -132,11 +187,7 @@ cv.lasso <- cv.glmnet(x=X.train, y=Y.train,family="gaussian", alpha=1, nfolds=10
 
 plot(cv.lasso)
 
-a <- broom::tidy(cv.lasso)
-
-a <- as_tibble(broom::tidy(coef(cv.lasso, s=cv.lasso$lambda.min)))
-
-ta <- tibble(df = list(a), b = "ola")
+coef(cv.lasso, s=cv.lasso$lambda.min)
 
 Y_pred.lasso <- predict(lasso.fit, newx = X.test, s=cv.lasso$lambda.min)
 
@@ -146,75 +197,89 @@ MSE_lasso <- mean((Y.test-Y_pred.lasso)^2)
 ```
 
 
-```{r}
-  plotCV <- function(x, y) {
-    as.data.frame(y) %>% 
-    tibble::rownames_to_column("variable") %>% 
-    tidyr::pivot_longer(-variable) %>% 
-    mutate(lambda=x[name]) %>% 
-    ggplot2::ggplot(aes(x=lambda,y=value,col=variable)) + 
-    ggplot2::geom_line() + 
-    ggrepel::geom_label_repel(data=~subset(.x,lambda==min(lambda)),
-    aes(label=variable),nudge_x=-0.5)
-  }
-  
-  plotCV(as.matrix(cv.lasso$glmnet.fit$beta), cv.lasso$lambda)
+# Qual o melhor modelo? Justifique.
+
+
+Para identificarmos o melhor modelo basta compararmos o *MSE* de cada um, o que
+possui menor EQM é o melhor estimador. Sendo assim:
+
+```{r comparando estimadores}
+
+EQM <- cbind("EQM" = c(MSE_MQO, MSE_ridge, MSE_lasso))
+rownames(EQM) <- c("MQO", "Ridge", "LASSO")
+
+EQM
+
 ```
 
+Nesse sentido, **surpreendentemente** o MQO é o nosso melhor modelo 
 
-Qual o melhor modelo? Justifique.
 
-# Questão Extra
 
-Ponto extra: Estime modelo de previsão usando Elastic-net (com alpha={ 0.25;0.5;0.75}). Compare com modelos anteriores. 
+### Questão Extra
 
-```{r elastic-net}
+Ponto extra: Estime modelo de previsão usando Elastic-net (com alpha={ 0.25;0.5;0.75}). Compare com modelos anteriores.
 
-alphas <- c(0.25, 0.5, 0.75)
+Primeiro vamos criar uma função para calcular o Elastic-net com vários alphas:
+
+```{r funcao elastic-net}
 
 
 estimadorElasticNet <- function(x_treino, y_treino, x_teste, y_teste, alpha, folds = 10) {
   
   elastic.fit <- glmnet::glmnet(x=X.train, y=Y.train,family="gaussian",alpha=alpha)
   
-  cv.elastic <- glmnet::cv.glmnet(x = X.train, y = Y.train, family = "gaussian", alpha = alpha, nfolds=folds)
+  cv.elastic <- glmnet::cv.glmnet(x = X.train,
+                                  y = Y.train,
+                                  family = "gaussian",
+                                  alpha = alpha,
+                                  nfolds=folds)
   
   coefElastic <- broom::tidy(coef(cv.elastic, s = cv.elastic$lambda.min))
   
   
-  #como o plot do `glmnet::plot.glmnet` retorna `NULL`, vamos construir nosso 
-  #plot
-  
+  Y_pred.elastic <- predict(elastic.fit, newx = X.test, s = cv.elastic$lambda.min)
 
+  MSE_elastic <- mean(( Y.test-Y_pred.elastic)^2 )
 
-  elasticTibble <- tibble(
+  elasticTibble <- tibble::tibble(
     coeficientes = list(coefElastic),
-     # plotLambda = plot(elastic.fit,xvar="lambda", label=TRUE),
+    cv = list(cv.elastic),
+    MSE = MSE_elastic
   )
-
-  elasticTibble <- elasticTibble %>%
-    mutate(plotcv = plot(cv.elastic),
-           plotfit = plot(elastic.fit,xvar="lambda", label=TRUE))
-    
+  
   }
+```
 
-elastic.fit <- glmnet(x=X.train, y=Y.train,family="gaussian",alpha=0.75)
+Enfim nós rodamos para os alphas desejados:
 
-plot(elastic.fit,xvar="lambda", label=TRUE)
+```{r estimando os en, warning=FALSE}
+alphas <- c(.25, .5, .75)
 
-
-f <- estimadorElasticNet(x_treino = X.train, y_treino = Y.train, x_teste = X.test, y_teste = Y.test, alpha = 0.5)
-
-broom::tidy
-
-plot(cv.elastic)
-
-coef(cv.elastic, s=cv.elastic$lambda.min)
-
-Y_pred.elastic<- predict(elastic.fit, newx = X.test, s=cv.elastic$lambda.min)
-
-MSE_elastic=mean((Y.test-Y_pred.elastic)^2)
-
-cbind(MSE_lasso,MSE_elastic)
+elasticAlphas <- purrr::map_df(alphas,  ~estimadorElasticNet(x_treino = X.train, y_treino = Y.train, x_teste = X.test, y_teste = Y.test, alpha = .x) %>% cbind(alpha = .x))
 
 ```
+
+Como fizemos anteriormente podemos selecionar o melhor modelo com base no
+EQM. Assim:
+
+```{r analise elastic }
+
+MSE_elastic <- elasticAlphas %>% select(MSE, alpha)
+
+MSE_elastic
+```
+
+Então, o nosso melhor estimador seria o Elastic-net com $alpha = 0.75$.
+
+E comparando com os outros:
+
+```{r comparando tudo}
+
+EQMTotal <- cbind("EQM" = c(MSE_MQO, MSE_ridge, MSE_lasso, MSE_elastic$MSE))
+rownames(EQMTotal) <- c("MQO", "Ridge", "LASSO", "ELASTIC(0.25)", "ELASTIC(0.50)", "ELASTIC(0.75)")
+
+EQMTotal
+```
+Assim, o melhor modelo seria o MQO.
+
